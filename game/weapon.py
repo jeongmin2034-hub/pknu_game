@@ -14,6 +14,8 @@ from settings import (
     BOOK_ROTATE_SPEED, BOOK_HIT_SIZE, BOOK_HIT_COOLDOWN,
     COFFEE_INTERVAL, COFFEE_DAMAGE, COFFEE_RADIUS, COFFEE_RANGE, COFFEE_EFFECT_TIME,
 )
+import sound
+import sprites
 
 
 def enemies_in_range(pos, enemies, max_range):
@@ -31,8 +33,7 @@ class Bullet(pygame.sprite.Sprite):
 
     def __init__(self, pos, direction, damage, now):
         super().__init__()
-        self.image = pygame.Surface((4, 4))
-        self.image.fill((240, 220, 80))
+        self.image = sprites.load("bullet", sprites.BULLET)
         self.pos = pygame.Vector2(pos)
         self.velocity = direction.normalize() * BULLET_SPEED
         self.rect = self.image.get_rect(center=self.pos)
@@ -68,14 +69,17 @@ class Pen:
                     if direction.length() > 0:
                         self.bullets.add(Bullet(player_pos, direction, PEN_DAMAGE, now))
                 self.last_shot = now
+                sound.play("shoot")
 
         # 총알 ↔ 적: 총알은 사라지고, 적은 데미지를 받음
         killed = []
         hits = pygame.sprite.groupcollide(self.bullets, enemies, True, False)
         for bullet, hit_enemies in hits.items():
             for enemy in hit_enemies:
-                if enemy.alive() and enemy.take_damage(bullet.damage):
-                    killed.append(enemy)
+                if enemy.alive():
+                    sound.play("hit")
+                    if enemy.take_damage(bullet.damage):
+                        killed.append(enemy)
         return killed
 
     def draw(self, screen, offset):
@@ -124,6 +128,7 @@ class Book:
             for book_pos in self.positions:
                 if enemy.pos.distance_to(book_pos) < BOOK_HIT_SIZE:
                     self.last_hit[enemy] = now
+                    sound.play("hit")
                     if enemy.take_damage(BOOK_DAMAGE):
                         killed.append(enemy)
                     break
@@ -133,11 +138,9 @@ class Book:
         return killed
 
     def draw(self, screen, offset):
+        image = sprites.load("book", sprites.BOOK)
         for pos in self.positions:
-            rect = pygame.Rect(0, 0, 6, 7)
-            rect.center = pos - offset
-            pygame.draw.rect(screen, (60, 90, 200), rect)
-            pygame.draw.line(screen, (230, 230, 230), (rect.left + 1, rect.top + 1), (rect.left + 1, rect.bottom - 2))
+            screen.blit(image, image.get_rect(center=pos - offset))
 
     # 레벨업 강화
     def can_add_count(self):
@@ -177,6 +180,7 @@ class Coffee:
                             killed.append(enemy)
                 self.explosions.append((center, now + COFFEE_EFFECT_TIME))
                 self.last_shot = now
+                sound.play("explosion")
 
         # 시간이 다 된 폭발 그림은 지움
         self.explosions = [(pos, end) for pos, end in self.explosions if end > now]

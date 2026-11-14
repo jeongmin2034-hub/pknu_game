@@ -9,6 +9,15 @@ FONT_NAME = "malgungothic" # 한글이 나오는 글꼴 (윈도우 맑은 고딕
 
 # 게임 진행
 GAME_DURATION = 10 * 60 * 1000   # 10분 버티면 클리어
+START_MINUTE = 0           # 테스트용: 몇 분부터 시작할지 (보스 확인하려면 9로)
+
+# 맵 (부경대 대연캠퍼스)
+#   assets/images/map.png 가 있으면 그 그림을 쓰고, 없으면 campus.py가 맵을 그림
+MAP_WIDTH, MAP_HEIGHT = 1280, 960
+MAP_BORDER = 64            # 맵 가장자리 건물 구역 두께 (플레이어는 못 들어감)
+
+# 효과음
+SOUND_VOLUME = 0.5         # 0.0 ~ 1.0
 
 # 플레이어
 PLAYER_SPEED = 2
@@ -36,7 +45,13 @@ ENEMY_TYPES = {
     "homework":   {"name": "과제",   "from_minute": 0, "hp": 10, "speed": 0.6, "damage": 5,  "xp": 1, "size": 8, "color": (200, 70, 70)},
     "exam":       {"name": "시험지", "from_minute": 3, "hp": 20, "speed": 0.9, "damage": 10, "xp": 2, "size": 9, "color": (230, 150, 60)},
     "attendance": {"name": "출석부", "from_minute": 6, "hp": 8,  "speed": 1.4, "damage": 8,  "xp": 2, "size": 7, "color": (170, 80, 210)},
+    # 보스: from_minute가 None이면 평소에는 안 나오고, BOSS_MINUTE에 한 번만 나옴
+    "final_exam": {"name": "기말고사", "from_minute": None, "hp": 600, "speed": 0.45, "damage": 25, "xp": 30, "size": 24, "color": (240, 230, 200)},
 }
+
+# 보스 (기말고사)
+BOSS_KIND = "final_exam"
+BOSS_MINUTE = 9            # 9분에 등장
 
 # 무기 1: 볼펜 투사체 (기본 무기) - 가장 가까운 적에게 발사
 PEN_INTERVAL = 1000        # 공격 간격 - 계획서: 1초마다 발사
@@ -80,7 +95,5 @@ ENERGY_ATTACK_BONUS = 0.5
 MEAL_HEAL = 30
 SCHOLARSHIP_XP_MULTIPLIER = 2
 
-# 배경
+# 배경 (맵 바깥)
 BG_COLOR = (30, 30, 40)
-GRID_COLOR = (45, 45, 60)
-GRID_SIZE = 32

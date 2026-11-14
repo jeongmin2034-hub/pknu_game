@@ -1,6 +1,18 @@
 # item.py - 줍는 것들 (경험치 보석, 버프 아이템)
+import math
+
 import pygame
-from settings import ITEMS, GEM_PICKUP_RADIUS, GEM_SPEED
+from settings import GEM_PICKUP_RADIUS, GEM_SPEED
+import sprites
+
+
+def gem_image(value):
+    """경험치가 클수록 다른 색 보석: 1 = 파랑, 2~4 = 초록, 5 이상 = 빨강"""
+    if value >= 5:
+        return sprites.load("gem_big", sprites.GEM, {"C": (230, 70, 80), "A": (255, 200, 200)})
+    if value >= 2:
+        return sprites.load("gem_mid", sprites.GEM, {"C": (80, 210, 120), "A": (210, 255, 220)})
+    return sprites.load("gem", sprites.GEM)
 
 
 class ExpGem(pygame.sprite.Sprite):
@@ -8,8 +20,7 @@ class ExpGem(pygame.sprite.Sprite):
 
     def __init__(self, x, y, value):
         super().__init__()
-        self.image = pygame.Surface((4, 4))
-        self.image.fill((80, 160, 240))
+        self.image = gem_image(value)
         self.pos = pygame.Vector2(x, y)
         self.rect = self.image.get_rect(center=(x, y))
         self.value = value
@@ -25,14 +36,22 @@ class ExpGem(pygame.sprite.Sprite):
         self.rect.center = self.pos
 
 
+def item_image(kind):
+    """버프 아이템 그림 + 흰 테두리 (잔디 위에서 잘 보이게)"""
+    return sprites.with_outline(sprites.load(kind, sprites.ITEM_GRIDS[kind]), (255, 255, 255))
+
+
 class BuffItem(pygame.sprite.Sprite):
     """맵에 생기는 버프 아이템. kind는 settings.ITEMS의 이름 (예: "americano")"""
 
     def __init__(self, x, y, kind):
         super().__init__()
         self.kind = kind
-        self.image = pygame.Surface((7, 7))
-        self.image.fill((255, 255, 255))                          # 흰 테두리
-        self.image.fill(ITEMS[kind]["color"], pygame.Rect(1, 1, 5, 5))  # 안쪽 색
+        self.image = item_image(kind)
         self.pos = pygame.Vector2(x, y)
         self.rect = self.image.get_rect(center=(x, y))
+
+    def draw(self, screen, offset, now):
+        """둥실둥실 위아래로 떠 있게 그림 (줍는 판정 위치는 그대로)"""
+        bob = round(math.sin(now / 250) * 1.5)
+        screen.blit(self.image, pygame.Vector2(self.rect.topleft) - offset + (0, bob))

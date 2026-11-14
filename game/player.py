@@ -9,13 +9,19 @@ from settings import (
     ENERGY_ATTACK_BONUS,
     SCHOLARSHIP_XP_MULTIPLIER,
 )
+import sprites
 
 
 class Player(pygame.sprite.Sprite):
     def __init__(self, x, y):
         super().__init__()
-        self.image = pygame.Surface((8, 8))
-        self.image.fill((80, 200, 120))
+        # 걷는 그림 2장 (오른쪽 보기) + 좌우 뒤집은 그림 (왼쪽 보기)
+        right = [sprites.load("player_1", sprites.PLAYER_1), sprites.load("player_2", sprites.PLAYER_2)]
+        left = [pygame.transform.flip(img, True, False) for img in right]
+        self.frames = {1: right, -1: left}
+        self.facing = 1    # 1 = 오른쪽, -1 = 왼쪽
+        self.moving = False
+        self.image = right[0]
         self.pos = pygame.Vector2(x, y)
         self.rect = self.image.get_rect(center=(x, y))
 
@@ -28,7 +34,7 @@ class Player(pygame.sprite.Sprite):
         self.xp = 0
         self.buffs = {}  # 버프 이름 -> 버프가 끝나는 시각. 예: {"americano": 25000}
 
-    def update(self, now):
+    def update(self, now, play_area):
         keys = pygame.key.get_pressed()
         direction = pygame.Vector2(
             (keys[pygame.K_RIGHT] or keys[pygame.K_d]) - (keys[pygame.K_LEFT] or keys[pygame.K_a]),
@@ -37,9 +43,20 @@ class Player(pygame.sprite.Sprite):
         speed = self.speed
         if self.has_buff("americano", now):
             speed *= 1 + AMERICANO_SPEED_BONUS
-        if direction.length() > 0:
+        self.moving = direction.length() > 0
+        if self.moving:
             self.pos += direction.normalize() * speed
-        self.rect.center = self.pos
+            if direction.x != 0:
+                self.facing = 1 if direction.x > 0 else -1
+
+        # 맵 밖(건물 구역)으로 못 나가게
+        self.pos.x = max(play_area.left, min(play_area.right, self.pos.x))
+        self.pos.y = max(play_area.top, min(play_area.bottom, self.pos.y))
+
+        # 움직이는 중이면 0.15초마다 그림을 바꿔서 걷는 것처럼
+        frame = (now // 150) % 2 if self.moving else 0
+        self.image = self.frames[self.facing][frame]
+        self.rect = self.image.get_rect(center=self.pos)
 
     # ---------- 버프 ----------
     def add_buff(self, name, duration, now):
@@ -63,11 +80,12 @@ class Player(pygame.sprite.Sprite):
         return self.is_blinking(now) or self.has_buff("student_id", now)
 
     def take_damage(self, amount, now):
-        """데미지를 받음. 무적 중이면 무시."""
+        """데미지를 받음. 무적 중이면 무시. 실제로 맞았으면 True"""
         if self.is_invincible(now):
-            return
+            return False
         self.hp = max(0, self.hp - amount)
         self.last_hit = now
+        return True
 
     def heal(self, amount):
         self.hp = min(self.max_hp, self.hp + amount)
