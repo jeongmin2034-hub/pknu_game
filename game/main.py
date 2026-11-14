@@ -1,11 +1,20 @@
 # main.py - 게임의 중심. 다른 파일을 불러와서 게임을 돌림
+# 1주차
 import math
 import random
 
 import pygame
 from settings import (
-    WIDTH, HEIGHT, SCALE, FPS, BG_COLOR, GRID_COLOR, GRID_SIZE,
-    SPAWN_INTERVAL, SPAWN_DISTANCE, MAX_ENEMIES,
+    WIDTH,
+    HEIGHT,
+    SCALE,
+    FPS,
+    BG_COLOR,
+    GRID_COLOR,
+    GRID_SIZE,
+    SPAWN_INTERVAL,
+    SPAWN_DISTANCE,
+    MAX_ENEMIES,
 )
 from player import Player
 from enemy import Enemy
@@ -21,7 +30,9 @@ def spawn_enemy(player_pos):
 
 def get_camera_offset(player_pos):
     """플레이어가 화면 가운데 오도록 하는 카메라 위치"""
-    return pygame.Vector2(round(player_pos.x - WIDTH / 2), round(player_pos.y - HEIGHT / 2))
+    return pygame.Vector2(
+        round(player_pos.x - WIDTH / 2), round(player_pos.y - HEIGHT / 2)
+    )
 
 
 def draw_grid(screen, offset):
