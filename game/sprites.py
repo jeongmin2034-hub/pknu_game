@@ -82,7 +82,63 @@ ATTENDANCE = [ # 출석부: 보라색 공책
     "PPPPPPW",
 ]
 
+REPORT = [     # 리포트: 겹쳐진 종이 (조별과제 보스는 이 그림을 4배로)
+    ".WWWWWW",
+    "WWWWWWG",
+    "WKWWKWG",
+    "WWWWWWG",
+    "WRRRRWG",
+    "WWWWWWG",
+    "WGGGGWG",
+    "WWWWWW.",
+]
+ALARM = [      # 알람시계
+    "V.RRRR.V",
+    ".RRRRRR.",
+    "RWWKWWWR",
+    "RWWKWWWR",
+    "RWWKKKWR",
+    "RWWWWWWR",
+    ".RRRRRR.",
+    ".K....K.",
+]
+FREERIDER_MINI = [  # 무임승차자가 죽으면 나오는 작은 적
+    ".HHHH.",
+    ".SKSK.",
+    ".SSSS.",
+    "QQQQQQ",
+    ".QQQQ.",
+    ".L..L.",
+]
+QUESTION = [   # 교수님 질문: 물음표 말풍선
+    ".PPPPPP.",
+    "PPWWWWPP",
+    "PPPPPWPP",
+    "PPPPWWPP",
+    "PPPWWPPP",
+    "PPPPPPPP",
+    "PPPWWPPP",
+    ".PPPPPP.",
+    "..PP....",
+]
+QMARK = [      # 교수님 질문이 던지는 물음표
+    ".YYY.",
+    "Y...Y",
+    "...Y.",
+    "..Y..",
+    ".....",
+    "..Y..",
+]
+
 # ---------------- 무기 ----------------
+TRAY = [       # 식판
+    "VVVVVVVV",
+    "VWWVOOOV",
+    "VWWVOOOV",
+    "VVVVVVVV",
+    "VQQVRRRV",
+    "VVVVVVVV",
+]
 BULLET = [     # 볼펜 잉크
     ".BB.",
     "BCCB",
@@ -106,6 +162,19 @@ GEM = [
     "CCACC",
     ".CCC.",
     "..C..",
+]
+
+# ---------------- 보물상자 (A+ 성적표) ----------------
+CHEST = [
+    "YYYYYYYYYY",
+    "YWWWWWWWWY",
+    "YWWRWWWWWY",
+    "YWRWRWWRWY",
+    "YWRRRWRRRY",
+    "YWRWRWWRWY",
+    "YWWWWWWWWY",
+    "YWGGGGGGWY",
+    "YYYYYYYYYY",
 ]
 
 # ---------------- 버프 아이템 ----------------
@@ -199,6 +268,27 @@ def load(name, grid, recolor=None):
     return _cache[name]
 
 
+def load_file(name):
+    """assets/images/<name>.png 가 있으면 그 그림, 없으면 None"""
+    if name not in _cache:
+        path = os.path.join(IMAGE_DIR, name + ".png")
+        _cache[name] = pygame.image.load(path).convert_alpha() if os.path.exists(path) else None
+    return _cache[name]
+
+
+def load_big(name, grid, times):
+    """글자 그림을 times배로 키운 그림 (보스, 진화 무기)"""
+    if name not in _cache:
+        path = os.path.join(IMAGE_DIR, name + ".png")
+        if os.path.exists(path):
+            _cache[name] = pygame.image.load(path).convert_alpha()
+        else:
+            small = from_grid(grid)
+            size = (small.get_width() * times, small.get_height() * times)
+            _cache[name] = pygame.transform.scale(small, size)
+    return _cache[name]
+
+
 def with_outline(surface, color):
     """그림 둘레에 1픽셀 테두리 (아이템이 잔디 위에서 잘 보이게)"""
     w, h = surface.get_size()
@@ -220,7 +310,7 @@ def white_flash(surface):
 
 
 def boss_image():
-    """기말고사 보스 (24x24) - 커서 글자 그림 대신 도형으로 그림"""
+    """기말고사 보스 (48x48) - 커서 글자 그림 대신 도형으로 그린 뒤 2배로 키움"""
     if "final_exam" in _cache:
         return _cache["final_exam"]
     path = os.path.join(IMAGE_DIR, "final_exam.png")
@@ -242,5 +332,5 @@ def boss_image():
     s.fill(red, (5, 15, 5, 2))
     for y in (13, 16, 19):                                     # 답안 줄
         pygame.draw.line(s, line, (14, y), (20, y))
-    _cache["final_exam"] = s
-    return s
+    _cache["final_exam"] = pygame.transform.scale(s, (48, 48))  # 최종 보스라 2배로
+    return _cache["final_exam"]
