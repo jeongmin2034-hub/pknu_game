@@ -14,12 +14,18 @@ import json
 import math
 import os
 import random
+import sys
 
 import pygame
 from settings import SOUND_VOLUME, BGM_VOLUME
 
 SOUND_DIR = os.path.join(os.path.dirname(__file__), "assets", "sounds")
-VOLUME_FILE = os.path.join(os.path.dirname(__file__), "volume.json")  # 볼륨 설정을 저장해 두는 파일
+# 볼륨 설정을 저장해 두는 파일.
+# 실행파일(.exe)로 돌릴 때는 코드가 임시 폴더에 풀리므로, exe 옆에 저장해야 다음에도 남아 있음
+if getattr(sys, "frozen", False):
+    VOLUME_FILE = os.path.join(os.path.dirname(sys.executable), "volume.json")
+else:
+    VOLUME_FILE = os.path.join(os.path.dirname(__file__), "volume.json")
 
 # 지금 볼륨 (0.0 ~ 1.0). "sfx" = 효과음, "bgm" = 배경음악
 volume = {"sfx": SOUND_VOLUME, "bgm": BGM_VOLUME}
