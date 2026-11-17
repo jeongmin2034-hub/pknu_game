@@ -33,8 +33,9 @@ PLAYER_MAX_HP = 100
 INVINCIBLE_TIME = 500      # 맞은 뒤 무적 시간 - 한 번에 여러 번 맞는 것 방지
 
 # 경험치 / 레벨업
-XP_BASE = 5                # 다음 레벨까지 필요한 경험치 = 5 + 3 x 현재 레벨
+XP_BASE = 5                # 다음 레벨까지 필요한 경험치 = 5 + 3 x 레벨 + 0.12 x 레벨²
 XP_PER_LEVEL = 3
+XP_GROWTH = 0.12           # 레벨이 높을수록 필요 경험치가 점점 더 많이 늘어남
 GEM_PICKUP_RADIUS = 30     # 이 거리 안의 경험치 보석은 플레이어에게 끌려옴
 GEM_COLLECT_DISTANCE = 6   # 이 거리까지 오면 획득
 GEM_SPEED = 4
@@ -46,7 +47,8 @@ LEVELUP_SHIELD_TIME = 1000 # 레벨업 직후 무적 시간
 MAX_WEAPONS = 6
 MAX_PASSIVES = 6
 EVOLVE_LEVEL = 7           # 무기가 이 레벨이 되면 진화 가능
-MAX_WEAPON_LEVEL = 10      # 무기 강화 한계
+WEAPON_BONUS_DAMAGE = 0.1  # 옵션을 다 찍은 무기는 레벨업마다 데미지 +10% (강화 한계 없음)
+KNOCKBACK_RATE = 0.5       # 모든 무기 넉백에 곱하는 배율
 
 # 적 생성 / 난이도
 #   1초마다 (4.5 + 경과 분)마리 생성 -> 느리지만 많이 (4.5마리 = 4마리 또는 5마리)
@@ -69,25 +71,82 @@ KNOCKBACK_DECAY = 0.85     # 넉백으로 밀리는 힘이 매 프레임 줄어�
 #   from_minute가 None이면 평소에는 안 나옴 (보스, 분열로 생기는 적)
 #   weight: 넉백을 받는 정도 (1 = 그대로, 0.5 = 절반, 0 = 안 밀림)
 ENEMY_TYPES = {
-    "homework":   {"name": "과제",     "from_minute": 0, "hp": 10, "speed": 0.42, "damage": 5,  "xp": 1, "weight": 1},
-    "report":     {"name": "길고양이",   "from_minute": 1, "hp": 7,  "speed": 0.5,  "damage": 4,  "xp": 1, "weight": 1.2},
-    "alarm":      {"name": "알람시계", "from_minute": 2, "hp": 14, "speed": 0.45, "damage": 8,  "xp": 2, "weight": 1},
-    "exam":       {"name": "시험지",   "from_minute": 4, "hp": 60, "speed": 0.32, "damage": 10, "xp": 4, "weight": 0.5},
-    "freerider":  {"name": "팀플 무임승차자", "from_minute": 5, "hp": 25, "speed": 0.45, "damage": 7, "xp": 2, "weight": 1,
+    "homework":   {"name": "과제",     "from_minute": 0, "hp": 12, "speed": 0.42, "damage": 5,  "xp": 1, "weight": 1},
+    "report":     {"name": "길고양이",   "from_minute": 1, "hp": 8.4,  "speed": 0.5,  "damage": 4,  "xp": 1, "weight": 1.2},
+    "alarm":      {"name": "알람시계", "from_minute": 2, "hp": 16.8, "speed": 0.45, "damage": 8,  "xp": 2, "weight": 1},
+    "exam":       {"name": "시험지",   "from_minute": 4, "hp": 72, "speed": 0.32, "damage": 10, "xp": 4, "weight": 0.5},
+    "freerider":  {"name": "팀플 무임승차자", "from_minute": 5, "hp": 30, "speed": 0.45, "damage": 7, "xp": 2, "weight": 1,
                    "split_into": "freerider_mini"},
     # 갈매기: 8마리가 뭉쳐서, 생성 순간의 플레이어 위치로 일직선 돌진 ("rush")
-    "attendance": {"name": "갈매기",   "from_minute": 6, "hp": 10, "speed": 2.2,  "damage": 8,  "xp": 2, "weight": 1, "rush": True},
-    "question":   {"name": "교수님 질문", "from_minute": 8, "hp": 22, "speed": 0.4, "damage": 6, "xp": 3, "weight": 1},
-    "freerider_mini": {"name": "무임승차자", "from_minute": None, "hp": 8, "speed": 0.7, "damage": 4, "xp": 1, "weight": 1},
+    "attendance": {"name": "갈매기",   "from_minute": 6, "hp": 12, "speed": 2.2,  "damage": 8,  "xp": 2, "weight": 1, "rush": True},
+    "question":   {"name": "교수님 질문", "from_minute": 8, "hp": 26.4, "speed": 0.4, "damage": 6, "xp": 3, "weight": 1},
+    "freerider_mini": {"name": "무임승차자", "from_minute": None, "hp": 9.6, "speed": 0.7, "damage": 4, "xp": 1, "weight": 1},
     # 보스: hp는 "플레이어 레벨 1당" 체력
-    "team_project": {"name": "조별과제", "from_minute": None, "boss": True, "hp": 25,  "speed": 0.7, "damage": 15, "xp": 20, "weight": 0},
-    "midterm":      {"name": "중간고사", "from_minute": None, "boss": True, "hp": 40,  "speed": 0.8, "damage": 20, "xp": 40, "weight": 0},
-    "final_exam":   {"name": "기말고사", "from_minute": None, "boss": True, "hp": 60,  "speed": 0.9, "damage": 25, "xp": 0,  "weight": 0},
+    "team_project": {"name": "조별과제", "from_minute": None, "boss": True, "hp": 62.5,"speed": 0.7, "damage": 15, "xp": 20, "weight": 0},
+    "lunch_line":   {"name": "학식 대기줄", "from_minute": None, "boss": True, "hp": 75, "speed": 0.9, "damage": 18, "xp": 30, "weight": 0},
+    "lunch_body":   {"name": "줄 선 학생", "from_minute": None, "hp": 1,   "speed": 0.9, "damage": 12, "xp": 3, "weight": 0},
+    "midterm":      {"name": "중간고사", "from_minute": None, "boss": True, "hp": 100,  "speed": 0.8, "damage": 20, "xp": 40, "weight": 0},
+    "final_exam":   {"name": "기말고사", "from_minute": None, "boss": True, "hp": 220,  "speed": 1.0, "damage": 35, "xp": 0,  "weight": 0},
 }
 
 # 보스 등장 시각 (분, 종류). 중간보스는 보물상자를 떨어뜨리고, 최종 보스를 잡으면 클리어
-BOSS_SCHEDULE = [(3, "team_project"), (7, "midterm"), (10, "final_exam")]
+BOSS_SCHEDULE = [(3, "team_project"), (5, "lunch_line"), (7, "midterm"), (10, "final_exam")]
 FINAL_BOSS = "final_exam"
+
+# 보스 등장 화면에 나오는 설명 (한 줄 소개, 공격 패턴, 공략 팁)
+BOSS_INFO = {
+    "team_project": {"title": "3분 중간보스", "intro": "아무도 안 하는 조별과제가 혼자 걸어온다",
+                     "attacks": ["과제 종이 3장을 부채꼴로 던짐"],
+                     "tip": "종이 사이 틈으로 옆으로 피하기"},
+    "lunch_line":   {"title": "5분 중간보스", "intro": "배고픔에 미친 학생들이 줄지어 몰려온다",
+                     "attacks": ["빨간 경고선을 따라 돌진", "줄 선 학생들이 젓가락을 던짐"],
+                     "tip": "맨 앞 머리를 노리기 (몸통은 데미지 40%만)"},
+    "midterm":      {"title": "7분 중간보스", "intro": "벼락치기로는 이길 수 없는 중간고사",
+                     "attacks": ["C 학점 8발을 사방으로 뿌림", "빨간 경고선을 따라 돌진"],
+                     "tip": "경고선 밖으로 비켜서고, C 학점 사이로 빠져나가기"},
+    "final_exam":   {"title": "최종 보스", "intro": "모든 몹이 물러났다. 종강을 건 1대1 결투",
+                     "attacks": ["점프 착지: 빨간 원에 떨어지며 사방으로 F 발사",
+                                 "3연속 돌진 (경고선)", "F 학점 회오리 탄막",
+                                 "빨간펜 폭격 (빨간 원이 차오르면 폭발)", "F 학점 부채꼴 발사"],
+                     "tip": "체력이 절반 아래면 분노해서 더 빨라짐! 빨간 표시 밖으로"},
+}
+
+# 중간보스 패턴 (너무 어렵지 않게: 투사체는 느리게, 돌진은 경로를 미리 빨갛게 보여 줌)
+#   "fan":    플레이어 쪽으로 부채꼴 3발 (조별과제: 과제 종이)
+#   "ring":   사방으로 8발 (중간고사: C 학점)
+#   "charge": 빨간 경고선 1초 -> 그 선을 따라 돌진
+BOSS_PATTERNS = {
+    "team_project": {"actions": ["fan"], "interval": 4500},
+    "lunch_line":   {"actions": ["charge"], "interval": 6000},
+    "midterm":      {"actions": ["ring", "charge"], "interval": 3500},
+    "final_exam":   {"actions": ["jump", "fan", "charge3", "spiral", "rain"], "interval": 2400},
+}
+FINAL_RAGE_HP = 0.5            # 기말고사: 체력이 이 비율 아래로 내려가면 분노
+FINAL_RAGE_SPEEDUP = 0.6       # 분노하면 패턴 간격에 곱함
+FINAL_BULLET_SPEED = 1.6       # 기말고사 F 탄 속도 (다른 보스 1.0)
+FINAL_BULLET_DAMAGE = 16
+FINAL_ENTER_TIME = 1600        # 기말고사가 하늘에서 떨어지는 시간 (ms)
+JUMP_TIME = 1100               # 점프해서 착지할 때까지 시간 (빨간 원이 이 동안 보임)
+JUMP_RADIUS = 60               # 착지 충격 범위
+JUMP_DAMAGE = 30
+SPIRAL_TIME = 3000             # 회오리 탄막 지속 시간
+RAIN_RADIUS = 40               # 빨간펜 폭격 원 크기
+RAIN_DAMAGE = 22
+BOSS_BULLET_SPEED = 1.0        # 보스 투사체 속도 (플레이어 이동 속도의 절반)
+BOSS_BULLET_DAMAGE = 10
+BOSS_BULLET_LIFETIME = 6000
+CHARGE_WARN_TIME = 1000        # 돌진 전 경고선이 보이는 시간 (ms)
+CHARGE_DISTANCE = 240          # 돌진 거리
+CHARGE_SPEED = 3.2
+CHARGE_REST_TIME = 700         # 돌진 뒤 잠깐 쉬는 시간
+
+# 학식 대기줄: 머리 뒤로 학생들이 줄줄이 따라옴
+LUNCH_FOLLOWERS = 11           # 몸통(줄 선 학생) 수
+LUNCH_GAP = 14                 # 학생 사이 간격 (픽셀)
+LUNCH_ZOMBIE_HP = 6             # 떨어져 나간 학생의 체력 (시간 배율이 곱해짐)
+LUNCH_BODY_DAMAGE_RATE = 0.4   # 몸통을 때리면 데미지의 40%가 머리 체력에서 깎임
+LUNCH_CHOPSTICK_INTERVAL = 5000  # 학생 한 명이 젓가락을 던지는 간격 (학생마다 시간을 어긋나게)
+LUNCH_CHOPSTICK_DAMAGE = 6
 
 # 알람시계: 가까워지면 잠깐 멈췄다가 돌진
 ALARM_RANGE = 100
@@ -116,11 +175,14 @@ BULLET_LIFETIME = 1500
 INK_RADIUS = 18            # 만년필: 맞은 자리 주변에 잉크가 튀는 범위
 
 # 전공서적: 플레이어 주변을 회전
-BOOK_DAMAGE = 8
-BOOK_RADIUS = 34           # 회전 반경
+BOOK_DAMAGE = 12
+BOOK_RADIUS = 50           # 회전 반경
 BOOK_ROTATE_SPEED = 0.18   # 1ms마다 도는 각도 (0.18 -> 2초에 한 바퀴)
 BOOK_HIT_SIZE = 8          # 책과 적이 이 거리 안이면 맞음
-BOOK_HIT_COOLDOWN = 500    # 같은 적을 다시 때리기까지 시간
+BOOK_HIT_COOLDOWN = 300    # 같은 적을 다시 때리기까지 시간
+BOOK_STORM_INTERVAL = 4000 # 백과사전: 페이지 폭풍 간격
+BOOK_STORM_TIME = 1000     # 페이지 폭풍: 책이 퍼졌다 돌아오는 시간
+BOOK_STORM_REACH = 2.5     # 페이지 폭풍: 가장 멀리 퍼질 때 반경 배율
 
 # 신라면: 바라보는 방향으로 화염 방사
 RAMEN_TICK = 150           # 이 간격으로 화염 안의 적에게 데미지
@@ -163,9 +225,10 @@ TRAY_HIT_SIZE = 10
 # 충전 케이블: 좌우로 번갈아 휘두르는 채찍
 CABLE_INTERVAL = 1300
 CABLE_DAMAGE = 14
-CABLE_LENGTH = 70
-CABLE_HEIGHT = 24
+CABLE_LENGTH = 150
+CABLE_HEIGHT = 36
 CABLE_EFFECT_TIME = 150
+CABLE_STUN_TIME = 400      # 고압 멀티탭: 전기 맞은 적이 멈추는 시간
 
 SLOW_TIME = 2000           # 과충전 시너지: 느려지는 시간
 
@@ -173,7 +236,7 @@ SLOW_TIME = 2000           # 과충전 시너지: 느려지는 시간
 SYNERGY_LEVEL = 3
 SYNERGIES = {
     "morning":    {"name": "얼큰한 모닝커피", "weapons": ("ramen", "coffee"),      "desc": "폭발 자리에 불 장판"},
-    "overcharge": {"name": "과충전",          "weapons": ("battery", "cable"),     "desc": "맞은 적 2초간 느려짐"},
+    "overcharge": {"name": "과충전",          "weapons": ("battery", "cable"),     "desc": "맞은 적 2초간 느려짐, 번개에서 전기가 1마리 튐"},
     "notes":      {"name": "필기 세트",       "weapons": ("pen", "highlighter"),   "desc": "볼펜 관통 +1, 형광펜 쿨타임 -20%"},
     "rush":       {"name": "학식 러시",       "weapons": ("book", "tray"),         "desc": "전공서적·식판 넉백 +50%"},
 }

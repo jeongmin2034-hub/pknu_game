@@ -274,6 +274,45 @@ def draw_info(window, weapons, player):
     draw_text(window, "tiny", "Tab / ESC / Enter: 닫기", UI_W // 2, 172, "midtop", GRAY)
 
 
+def draw_boss_intro(window, boss, elapsed):
+    """보스 등장 화면: 왼쪽에 보스 그림, 오른쪽에 이름·소개·공격 패턴·공략 팁"""
+    from settings import BOSS_INFO
+    info = BOSS_INFO.get(boss.kind, {"title": "보스", "intro": "", "attacks": [], "tip": ""})
+    t = min(1, elapsed / 250)                       # 0.25초 동안 위에서 미끄러져 내려옴
+    drop = int((1 - t) * 20)
+    panel = pygame.Rect(30, 32 - drop, 260, 112)
+    box = to_window(panel)
+    pygame.draw.rect(window, (30, 16, 22), box, border_radius=10)
+    pygame.draw.rect(window, RED, box, 5, border_radius=10)
+    # 위쪽 띠: WARNING
+    band = pygame.Rect(box.left, box.top, box.width, 12 * U)
+    pygame.draw.rect(window, (150, 24, 32), band, border_top_left_radius=10, border_top_right_radius=10)
+    blink = (elapsed // 300) % 2 == 0
+    draw_text(window, "small", f"⚠ {info['title']} 등장 ⚠", UI_W // 2, panel.top + 2, "midtop",
+              YELLOW if blink else (255, 255, 255))
+    # 보스 그림 (크게)
+    image = boss.frames[0]
+    scale = min(56 * U / image.get_width(), 64 * U / image.get_height())
+    big = pygame.transform.scale(image, (int(image.get_width() * scale), int(image.get_height() * scale)))
+    center = (box.left + 38 * U, box.top + 60 * U)
+    pygame.draw.circle(window, (70, 26, 34), center, 32 * U)
+    window.blit(big, big.get_rect(center=center))
+    # 글
+    x = panel.left + 78
+    draw_text(window, "big", boss.name, x, panel.top + 16, "topleft", RED)
+    draw_text(window, "tiny", info["intro"], x, panel.top + 32, "topleft", GRAY)
+    draw_text(window, "small", "공격 패턴", x, panel.top + 44, "topleft", YELLOW)
+    y = panel.top + 54
+    for attack in info["attacks"]:
+        draw_text(window, "tiny", f"• {attack}", x + 2, y, "topleft")
+        y += 8
+    draw_text(window, "small", "공략", x, y + 3, "topleft", GREEN)
+    draw_text(window, "tiny", info["tip"], x + 2, y + 13, "topleft")
+    if elapsed > 800:
+        draw_text(window, "small", "아무 키나 누르면 시작", UI_W // 2, panel.bottom + 6, "midtop",
+                  TEXT_COLOR if blink else GRAY)
+
+
 BANNER_TIME = 2200   # 진화·시너지 알림이 떠 있는 시간 (ms)
 
 

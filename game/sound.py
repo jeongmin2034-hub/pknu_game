@@ -113,21 +113,74 @@ def make_bgm():
     return array.array("h", [a + b for a, b in zip(melody_part, bass_part)])
 
 
+# 최종 보스전 음악: 빠르고 무거운 단조 (A 단조). 한 칸 = 8분음표
+E2, F2, G2 = 82, 87, 98
+E4, F4, G4, GS4 = 330, 349, 392, 415
+F5 = 698
+BOSS_MELODY = [
+    A4, A4, 0, A4, C5, 0, B4, A4,    G4, 0, G4, G4, A4, 0, E4, 0,
+    F4, F4, 0, F4, A4, 0, G4, F4,    E4, 0, E4, GS4, B4, 0, E5, 0,
+    A5, 0, G5, E5, F5, 0, E5, D5,    C5, 0, D5, E5, A4, 0, 0, 0,
+    F5, 0, E5, D5, E5, 0, C5, B4,    GS4, 0, B4, D5, E5, E5, E5, 0,
+]
+BOSS_ROOTS = [A2, G2, F2, E2, A2, C3, F2, E2]   # 마디마다 베이스 음 (8분음표 8개씩)
+BOSS_NOTE_TIME = 0.12
+
+
+def make_boss_bgm():
+    """멜로디 + 쿵쿵 뛰는 베이스 + 드럼(킥·스네어·하이햇)"""
+    t = BOSS_NOTE_TIME
+    melody_part = array.array("h")
+    for freq in BOSS_MELODY:
+        melody_part.extend(tone(freq, freq, t, "square", 0.11 if freq else 0))
+    bass_part = array.array("h")
+    for i in range(len(BOSS_MELODY)):
+        root = BOSS_ROOTS[i // 8]
+        freq = root if i % 2 == 0 else root * 2           # 옥타브를 오가며 달리는 베이스
+        bass_part.extend(tone(freq, freq, t, "square", 0.09))
+    drum_part = array.array("h")
+    for i in range(len(BOSS_MELODY)):
+        if i % 4 == 0:
+            hit = tone(150, 40, t, "sine", 0.45)           # 킥 (쿵)
+        elif i % 4 == 2:
+            hit = tone(0, 0, t, "noise", 0.18)             # 스네어 (착)
+        else:
+            hit = tone(0, 0, t * 0.3, "noise", 0.05)       # 하이햇 (츳)
+            hit.extend(array.array("h", [0]) * (len(tone(0, 0, t, "sine", 0)) - len(hit)))
+        drum_part.extend(hit)
+    count = min(len(melody_part), len(bass_part), len(drum_part))
+    return array.array("h", [max(-32767, min(32767, melody_part[i] + bass_part[i] + drum_part[i]))
+                             for i in range(count)])
+
+
 def start_bgm():
     """배경음악을 끝없이 반복 재생 (sound.init() 다음에 한 번)"""
-    if not pygame.mixer.get_init():
+    play_bgm("normal")
+
+
+def play_bgm(kind):
+    """kind: "normal"(평소) 또는 "boss"(최종 보스전). 지금 나오는 음악을 끄고 바꿔 틂.
+    assets/sounds에 bgm.ogg / boss_bgm.ogg 같은 파일이 있으면 그걸 씀"""
+    if not pygame.mixer.get_init() or _sounds.get("playing") == kind:
         return
+    _sounds["playing"] = kind
+    pygame.mixer.music.stop()
+    for name in ("bgm", "boss_bgm"):
+        if isinstance(_sounds.get(name), pygame.mixer.Sound):
+            _sounds[name].stop()
+    file_name = "bgm" if kind == "normal" else "boss_bgm"
     for ext in (".ogg", ".mp3", ".wav"):
-        path = os.path.join(SOUND_DIR, "bgm" + ext)
+        path = os.path.join(SOUND_DIR, file_name + ext)
         if os.path.exists(path):
             pygame.mixer.music.load(path)
             pygame.mixer.music.set_volume(volume["bgm"])
             pygame.mixer.music.play(-1)
             return
-    bgm = pygame.mixer.Sound(buffer=make_bgm())
-    bgm.set_volume(volume["bgm"])
-    bgm.play(-1)
-    _sounds["bgm"] = bgm  # 지워지지 않게 보관
+    if file_name not in _sounds:   # 처음 틀 때 한 번만 만듦
+        _sounds[file_name] = pygame.mixer.Sound(buffer=make_bgm() if kind == "normal" else make_boss_bgm())
+    music = _sounds[file_name]
+    music.set_volume(volume["bgm"])
+    music.play(-1)
 
 
 def load_volume():
@@ -146,7 +199,8 @@ def set_volume(kind, value):
     바로 적용하고 파일에 저장해서 다음에 켤 때도 유지됨"""
     volume[kind] = max(0, min(1, round(value, 2)))
     for name, sound in _sounds.items():
-        sound.set_volume(volume["bgm"] if name == "bgm" else volume["sfx"])
+        if isinstance(sound, pygame.mixer.Sound):
+            sound.set_volume(volume["bgm"] if name in ("bgm", "boss_bgm") else volume["sfx"])
     if pygame.mixer.get_init():
         pygame.mixer.music.set_volume(volume["bgm"])
     try:

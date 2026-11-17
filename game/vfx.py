@@ -271,3 +271,115 @@ def fire_spark(pos):
     color = random.choice(((255, 200, 70), (255, 140, 40)))
     add((pos[0] + random.uniform(-14, 14), pos[1] + random.uniform(-8, 8)),
         (random.uniform(-0.3, 0.3), random.uniform(-1.6, -0.6)), 380, color, 2, 0, True)
+
+
+def draw_warning(screen, offset, start, end, width, time):
+    """보스 돌진 경고: 돌진할 길을 빨간 띠로 보여 주고, 화살표가 진행 방향으로 흘러감"""
+    a, b = pygame.Vector2(start) - offset, pygame.Vector2(end) - offset
+    direction = b - a
+    if direction.length() == 0:
+        return
+    forward = direction.normalize()
+    side = pygame.Vector2(-forward.y, forward.x) * width / 2
+    left, top = min(a.x, b.x) - width, min(a.y, b.y) - width
+    size = (int(abs(b.x - a.x) + width * 2) + 2, int(abs(b.y - a.y) + width * 2) + 2)
+    layer = pygame.Surface(size, pygame.SRCALPHA)
+    corner = pygame.Vector2(left, top)
+    band = [p - corner for p in (a + side, b + side, b - side, a - side)]
+    pulse = 70 + 40 * math.sin(time / 80)          # 깜빡깜빡
+    pygame.draw.polygon(layer, (230, 40, 40, int(pulse)), band)
+    pygame.draw.polygon(layer, (255, 90, 90, 220), band, 2)
+    # 진행 방향 화살표 (>)
+    length = direction.length()
+    for k in range(4):
+        d = (time / 6 + k * length / 4) % length
+        tip = a + forward * d - corner
+        wing = forward * -8
+        pygame.draw.lines(layer, (255, 200, 200, 230), False,
+                          [tip + wing + side * 0.6, tip, tip + wing - side * 0.6], 2)
+    screen.blit(layer, corner)
+
+
+
+# ------------------------------------------------------------------
+# 기말고사 (최종 보스)
+# ------------------------------------------------------------------
+_shake = [0, 0, 0]   # [세기, 시작, 끝]
+_vignette = {}
+
+
+def shake(power, time):
+    """화면 흔들기"""
+    _shake[:] = [power, now, now + time]
+
+
+def shake_offset():
+    power, start, end = _shake
+    if now >= end:
+        return pygame.Vector2(0, 0)
+    p = power * (end - now) / (end - start)
+    return pygame.Vector2(random.uniform(-p, p), random.uniform(-p, p))
+
+
+def final_landing(pos):
+    """기말고사가 하늘에서 떨어져 착지: 화면 번쩍 + 충격파 세 겹 + 파편"""
+    shake(9, 900)
+    flash(pos, 160, 700, (255, 80, 60))
+    for r1, life, color, width in ((260, 700, (255, 70, 60), 5), (180, 550, (255, 200, 120), 3), (110, 420, (255, 255, 255), 2)):
+        ring(pos, 10, r1, life, color, width)
+    burst(pos, 50, (120, 96, 80), speed=4.5, life=800, size=3, gravity=0.12)      # 흙 파편
+    burst(pos, 30, (255, 90, 60), speed=3.5, life=700, size=2, light=True)       # 불똥
+    burst(pos, 20, (240, 230, 200), speed=2.2, life=600, size=4)                 # 종이 조각
+
+
+def slam(pos):
+    """점프 착지"""
+    shake(5, 350)
+    flash(pos, 70, 300, (255, 120, 80))
+    ring(pos, 8, 70, 380, (255, 160, 120), 3)
+    burst(pos, 18, (130, 104, 84), speed=3, life=450, size=3, gravity=0.1)
+
+
+def red_blast(pos, radius):
+    """빨간펜 폭격 폭발"""
+    flash(pos, radius * 1.4, 220, (255, 60, 50))
+    ring(pos, radius * 0.4, radius, 220, (255, 120, 110), 3)
+    burst(pos, 8, (220, 30, 40), speed=2.4, life=320, size=2, gravity=0.06)
+
+
+def rage(pos):
+    """기말고사 분노: 크게 번쩍 + 불기둥 + 충격파"""
+    shake(10, 1000)
+    flash(pos, 180, 900, (255, 60, 20))
+    for r1, life, color, width in ((240, 800, (255, 60, 30), 5), (160, 650, (255, 170, 60), 3)):
+        ring(pos, 10, r1, life, color, width)
+    for _ in range(50):   # 위로 솟는 불기둥
+        x = pos[0] + random.uniform(-30, 30)
+        add((x, pos[1] + random.uniform(0, 20)), (random.uniform(-0.3, 0.3), random.uniform(-5, -2)),
+            random.uniform(500, 900), random.choice(((255, 80, 20), (255, 170, 40), (255, 230, 120))), 3, -0.02, True)
+    burst(pos, 30, (40, 20, 20), speed=3.5, life=800, size=3, gravity=0.08)   # 검은 재
+
+
+def rage_aura(pos, width):
+    """분노한 기말고사 주변에 계속 피어오르는 불꽃"""
+    if len(particles) > MAX_PARTICLES * 0.7:
+        return
+    x = pos[0] + random.uniform(-width / 2, width / 2)
+    color = random.choice(((255, 90, 20), (255, 160, 40), (220, 40, 30)))
+    add((x, pos[1] + random.uniform(-10, 30)), (random.uniform(-0.3, 0.3), random.uniform(-2.2, -0.8)),
+        random.uniform(300, 600), color, random.choice((2, 3)), -0.01, True)
+
+
+def draw_vignette(screen, time):
+    """최종 보스전: 화면 가장자리에 붉은 기운이 맥박처럼 뛰는 효과"""
+    size = screen.get_size()
+    if size not in _vignette:
+        w, h = size
+        layer = pygame.Surface(size, pygame.SRCALPHA)
+        for i in range(40):
+            alpha = int(150 * (1 - i / 40) ** 2)
+            pygame.draw.rect(layer, (150, 0, 10, alpha), (i * 2, i * 2, w - i * 4, h - i * 4), 2)
+        _vignette[size] = layer
+    layer = _vignette[size]
+    layer.set_alpha(int(130 + 50 * math.sin(time / 300)))
+    screen.blit(layer, (0, 0))

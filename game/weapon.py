@@ -15,7 +15,7 @@ import random
 import pygame
 from settings import (
     PEN_INTERVAL, PEN_DAMAGE, PEN_RANGE, BULLET_SPEED, BULLET_LIFETIME, INK_RADIUS,
-    BOOK_DAMAGE, BOOK_RADIUS, BOOK_ROTATE_SPEED, BOOK_HIT_SIZE, BOOK_HIT_COOLDOWN,
+    BOOK_DAMAGE, BOOK_RADIUS, BOOK_ROTATE_SPEED, BOOK_HIT_SIZE, BOOK_HIT_COOLDOWN, BOOK_STORM_INTERVAL, BOOK_STORM_TIME, BOOK_STORM_REACH,
     RAMEN_TICK, RAMEN_DAMAGE, RAMEN_LENGTH, RAMEN_ANGLE,
     FIRE_TIME, FIRE_TICK, FIRE_DAMAGE, FIRE_RADIUS,
     COFFEE_INTERVAL, COFFEE_DAMAGE, COFFEE_RADIUS, COFFEE_RANGE, COFFEE_EFFECT_TIME,
@@ -23,8 +23,8 @@ from settings import (
     HIGHLIGHTER_INTERVAL, HIGHLIGHTER_DAMAGE, HIGHLIGHTER_LENGTH, HIGHLIGHTER_WIDTH,
     HIGHLIGHTER_EFFECT_TIME,
     TRAY_INTERVAL, TRAY_DAMAGE, TRAY_RANGE, TRAY_SPEED, TRAY_HIT_SIZE,
-    CABLE_INTERVAL, CABLE_DAMAGE, CABLE_LENGTH, CABLE_HEIGHT, CABLE_EFFECT_TIME,
-    SLOW_TIME, SYNERGIES, SYNERGY_LEVEL, EVOLVE_LEVEL, MAX_WEAPON_LEVEL,
+    CABLE_INTERVAL, CABLE_DAMAGE, CABLE_LENGTH, CABLE_HEIGHT, CABLE_EFFECT_TIME, CABLE_STUN_TIME,
+    SLOW_TIME, SYNERGIES, SYNERGY_LEVEL, EVOLVE_LEVEL, WEAPON_BONUS_DAMAGE, KNOCKBACK_RATE,
 )
 import sound
 import sprites
@@ -55,7 +55,7 @@ def hit(enemy, damage, killed, knockback=0, from_pos=None):
         return
     sound.play("hit")
     vfx.hit(enemy.pos)
-    if enemy.take_damage(damage, knockback, from_pos):
+    if enemy.take_damage(damage, knockback * KNOCKBACK_RATE, from_pos):
         killed.append(enemy)
 
 
@@ -117,16 +117,23 @@ class Weapon:
         return self.evo_name if self.evolved else self.name
 
     def available_options(self):
-        """아직 더 올릴 수 있는 옵션 번호들"""
-        if self.level >= MAX_WEAPON_LEVEL:
-            return []
-        return [i for i, option in enumerate(self.options) if self.taken.get(i, 0) < option[3]]
+        """아직 더 올릴 수 있는 옵션 번호들. 다 찍었으면 [-1] (데미지 +10%, 무한히 가능)"""
+        left = [i for i, option in enumerate(self.options) if self.taken.get(i, 0) < option[3]]
+        return left or [-1]
+
+    def option_text(self, index):
+        if index == -1:
+            return f"데미지 +{round(WEAPON_BONUS_DAMAGE * 100)}%"
+        return self.options[index][0]
 
     def take_option(self, index):
         """옵션 하나를 적용: 그 값에 정해진 양을 더하고 레벨 +1"""
-        _, attr, amount, _ = self.options[index]
-        setattr(self, attr, getattr(self, attr) + amount)
-        self.taken[index] = self.taken.get(index, 0) + 1
+        if index == -1:
+            self.damage *= 1 + WEAPON_BONUS_DAMAGE
+        else:
+            _, attr, amount, _ = self.options[index]
+            setattr(self, attr, getattr(self, attr) + amount)
+            self.taken[index] = self.taken.get(index, 0) + 1
         self.level += 1
 
     def can_evolve(self):
@@ -280,37 +287,53 @@ class Pen(Weapon):
 # ------------------------------------------------------------------
 class Book(Weapon):
     name = "전공서적"
-    desc = "주변을 회전하며 공격"
+    desc = "주변을 돌며 적을 때리고 밀어냄"
     evo_name = "백과사전"
-    evo_desc = "책 크기 2배, 도는 범위 1.5배"
+    evo_desc = "책 +2권, 4초마다 페이지 폭풍 (크게 퍼지며 데미지 2배)"
     options = [
         ("책 개수 +1", "count", 1, 3),
         ("회전 속도 +20%", "rotate_speed", BOOK_ROTATE_SPEED * 0.2, 3),
         ("데미지 +6", "damage", 6, 4),
-        ("넉백 +2", "knockback", 2, 2),
+        ("회전 반경 +10", "radius", 10, 3),
+        ("넉백 +3", "knockback", 3, 2),
         ("책 크기 +25%", "size", 0.25, 2),
     ]
 
     def __init__(self):
         super().__init__()
-        self.count = 1
+        self.count = 2
         self.rotate_speed = BOOK_ROTATE_SPEED
         self.damage = BOOK_DAMAGE
-        self.knockback = 6
+        self.radius = BOOK_RADIUS
+        self.knockback = 10
         self.size = 1
         self.angle = 0
         self.last_update = 0
+        self.storm_start = -BOOK_STORM_TIME   # 페이지 폭풍을 시작한 시각
         self.positions = []   # 책들의 현재 위치 (그리기용)
         self.last_hit = {}    # 적 -> 그 적을 마지막으로 때린 시각
 
+    def evolve(self):
+        super().evolve()
+        self.count += 2
+
     def scale(self):
-        return self.size * (2 if self.evolved else 1)
+        return self.size * (1.5 if self.evolved else 1)
+
+    def storm(self, now):
+        """페이지 폭풍 진행 정도: 0(평소) ~ 1(가장 멀리 퍼짐)"""
+        t = (now - self.storm_start) / BOOK_STORM_TIME
+        return math.sin(t * math.pi) if 0 <= t <= 1 else 0
 
     def update(self, now, player, enemies):
+        if self.evolved and now - self.storm_start >= BOOK_STORM_INTERVAL:
+            self.storm_start = now
+            vfx.ring(player.pos, self.radius, self.radius * BOOK_STORM_REACH, BOOK_STORM_TIME // 2, (255, 220, 120), 2)
+        storm = self.storm(now)
         # 책 위치 계산: 시간에 따라 각도가 커짐 -> 회전. 책끼리는 같은 간격으로 벌어짐
-        self.angle += (now - self.last_update) * self.rotate_speed
+        self.angle += (now - self.last_update) * self.rotate_speed * (1 + storm)
         self.last_update = now
-        radius = BOOK_RADIUS * (1.5 if self.evolved else 1)
+        radius = self.radius * (1 + (BOOK_STORM_REACH - 1) * storm)
         self.positions = [
             player.pos + pygame.Vector2(radius, 0).rotate(self.angle + 360 * i / self.count)
             for i in range(self.count)
@@ -321,6 +344,7 @@ class Book(Weapon):
             if self.evolved and random.random() < 0.12:
                 vfx.gold(book_pos, 1)
         knockback = self.knockback * (1.5 if "rush" in player.synergies else 1)
+        damage = self.damage * (2 if storm > 0.2 else 1)
         cooldown = BOOK_HIT_COOLDOWN * player.cooldown_mult(now)
         for enemy in list(enemies):
             if now - self.last_hit.get(enemy, -cooldown) < cooldown:
@@ -328,7 +352,7 @@ class Book(Weapon):
             for book_pos in self.positions:
                 if enemy.pos.distance_to(book_pos) < BOOK_HIT_SIZE * self.scale() + enemy.rect.width / 2:
                     self.last_hit[enemy] = now
-                    hit(enemy, self.damage, killed, knockback, player.pos)
+                    hit(enemy, damage, killed, knockback, player.pos)
                     if "rush" in player.synergies:
                         vfx.dust(enemy.pos)
                     break
@@ -527,8 +551,10 @@ class Battery(Weapon):
                     for enemy in enemies_in_range(center, enemies, self.radius):
                         slow(enemy, now, player)
                         hit(enemy, self.damage, killed, self.knockback, center)
-                    if self.evolved:  # 가까운 적 2마리에게 전기가 튐 (절반 데미지)
-                        for enemy in enemies_in_range(center, enemies, CHAIN_RANGE)[:2]:
+                    # 진화하면 가까운 적 2마리, 과충전 시너지면 1마리에게 전기가 튐 (절반 데미지)
+                    jumps = 2 if self.evolved else (1 if "overcharge" in player.synergies else 0)
+                    if jumps:
+                        for enemy in enemies_in_range(center, enemies, CHAIN_RANGE)[:jumps]:
                             self.sparks.append((center, pygame.Vector2(enemy.pos), now + 150))
                             slow(enemy, now, player)
                             hit(enemy, self.damage * 0.5, killed)
@@ -715,16 +741,16 @@ class Tray(Weapon):
 # ------------------------------------------------------------------
 class Cable(Weapon):
     name = "충전 케이블"
-    desc = "좌우로 휘두르는 채찍"
+    desc = "양옆을 동시에 휘두르고, 맞은 적에서 전기가 1마리 튐"
     evo_name = "고압 멀티탭"
-    evo_desc = "맞은 적 주변 3마리에게 전기 연쇄"
+    evo_desc = "길이 1.4배, 전기 연쇄 +4마리, 연쇄 거리 2배, 감전된 적은 잠깐 멈춤"
     options = [
         ("데미지 +6", "damage", 6, 4),
-        ("케이블 길이 +20", "length", 20, 3),
+        ("케이블 길이 +30", "length", 30, 3),
         ("공격 간격 -0.2초", "interval", -200, 3),
         ("넉백 +2", "knockback", 2, 2),
         ("케이블 폭 +10", "height", 10, 2),
-        ("양쪽 동시 공격", "both", 1, 1),
+        ("전기 연쇄 +1", "chains", 1, 2),
     ]
 
     def __init__(self):
@@ -734,43 +760,63 @@ class Cable(Weapon):
         self.interval = CABLE_INTERVAL
         self.height = CABLE_HEIGHT
         self.knockback = 6
-        self.both = 0      # 1이면 좌우를 동시에 침
-        self.side = 1      # 1 = 오른쪽, -1 = 왼쪽 (칠 때마다 바뀜)
+        self.chains = 1    # 처음 맞은 적에서 전기가 몇 마리까지 이어지는지
         self.whips = []    # 그리기용 (시작, 끝, 사라질 시각)
         self.sparks = []   # 그리기용: 전기 연쇄 (시작, 끝, 사라질 시각)
 
     def update(self, now, player, enemies):
         killed = []
         if self.cooled(now, player, self.interval):
-            first = None
-            for side in ((1, -1) if self.both else (self.side,)):
+            firsts = []   # 양쪽에서 처음 맞은 적 (여기서 전기 연쇄 시작)
+            for side in (1, -1):   # 좌우를 동시에 침
                 # 플레이어 옆의 네모 구역 안에 있는 적이 맞음
-                area = pygame.Rect(0, 0, self.length, self.height)
+                length = self.length * (1.4 if self.evolved else 1)
+                area = pygame.Rect(0, 0, length, self.height)
                 if side == 1:
                     area.midleft = player.pos
                 else:
                     area.midright = player.pos
+                first = None
                 for enemy in list(enemies):
                     if area.collidepoint(enemy.pos):
-                        first = first or enemy
+                        if first is None or player.pos.distance_to(enemy.pos) < player.pos.distance_to(first.pos):
+                            first = enemy
                         slow(enemy, now, player)
                         hit(enemy, self.damage, killed, self.knockback, player.pos)
-                end = player.pos + pygame.Vector2(self.length * side, 0)
+                end = player.pos + pygame.Vector2(length * side, 0)
                 self.whips.append((pygame.Vector2(player.pos), end, now + CABLE_EFFECT_TIME))
                 vfx.whip_tip(end, self.evolved)
                 self.shine(end, 3)
-            if self.evolved and first:  # 처음 맞은 적 주변 3마리에게 전기 (60% 데미지)
-                for enemy in enemies_in_range(first.pos, enemies, CHAIN_RANGE + 30)[:3]:
-                    self.sparks.append((pygame.Vector2(first.pos), pygame.Vector2(enemy.pos), now + 150))
-                    slow(enemy, now, player)
-                    hit(enemy, self.damage * 0.6, killed)
-            self.side = -self.side
+                if first:
+                    firsts.append(first)
+            for first in firsts:
+                self.chain(first, now, player, enemies, killed)
             self.last_shot = now
             sound.play("whip")
 
         self.whips = [w for w in self.whips if w[2] > now]
         self.sparks = [s for s in self.sparks if s[2] > now]
         return killed
+
+    def chain(self, start, now, player, enemies, killed):
+        """start에서 가장 가까운 적으로 전기가 튀고, 거기서 또 다음 적으로 (60% 데미지)"""
+        count = self.chains + (4 if self.evolved else 0)
+        reach = (CHAIN_RANGE + 30) * (2 if self.evolved else 1)
+        done = {start}
+        current = start
+        for _ in range(count):
+            near = [e for e in enemies_in_range(current.pos, enemies, reach) if e not in done]
+            if not near:
+                break
+            target = near[0]
+            self.sparks.append((pygame.Vector2(current.pos), pygame.Vector2(target.pos), now + 180))
+            vfx.whip_tip(target.pos, True)
+            slow(target, now, player)
+            if self.evolved and not target.is_boss:
+                target.stun_until = now + CABLE_STUN_TIME
+            hit(target, self.damage * 0.6, killed)
+            done.add(target)
+            current = target
 
     def draw(self, screen, offset, now):
         color = (150, 220, 255) if self.evolved else (245, 245, 250)

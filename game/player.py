@@ -7,6 +7,7 @@ from settings import (
     INVINCIBLE_TIME,
     XP_BASE,
     XP_PER_LEVEL,
+    XP_GROWTH,
     GEM_PICKUP_RADIUS,
     AMERICANO_SPEED_BONUS,
     ENERGY_ATTACK_BONUS,
@@ -124,7 +125,7 @@ class Player(pygame.sprite.Sprite):
 
     # ---------- 경험치 / 레벨 ----------
     def xp_needed(self):
-        return XP_BASE + XP_PER_LEVEL * self.level
+        return round(XP_BASE + XP_PER_LEVEL * self.level + XP_GROWTH * self.level ** 2)
 
     def gain_xp(self, amount, now):
         if self.has_buff("scholarship", now):

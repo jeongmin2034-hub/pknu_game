@@ -60,7 +60,7 @@ from settings import (
     SYNERGIES,
 )
 from player import Player
-from enemy import Enemy
+from enemy import Enemy, Hazard
 from weapon import Pen, active_synergies
 from item import ExpGem, BuffItem, Chest
 import campus
@@ -279,6 +279,7 @@ def main():
 
         # 0. 새 게임 세팅 (처음 시작할 때와 R로 재시작할 때)
         if restart:
+            sound.play_bgm("normal")
             player = Player(*(campus.start or play_area.center))
             weapons = {"pen": Pen()}  # 처음엔 볼펜만. 레벨업으로 최대 6개까지
             enemies = pygame.sprite.Group()
@@ -344,6 +345,13 @@ def main():
                     state, settings_from, menu_index = "settings", "pause", 0
                 elif pressed and menu_index == 3:
                     restart, start_state = True, "title"  # 시작 화면으로
+
+            # 보스 소개: 아무 키나 클릭으로 닫기 (바로 넘어가지 않게 0.8초 기다림)
+            elif state == "bossintro":
+                if event.type in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN) \
+                        and pygame.time.get_ticks() - intro_start > 800:
+                    state = "playing"
+                    message, message_color, message_end = f"{intro_boss.name} 등장!", ui.RED, now + 2000
 
             # 효과 설명 (진화·시너지): Tab / ESC / Enter / 클릭으로 닫기
             elif state == "info":
@@ -439,13 +447,13 @@ def main():
                 recycle_far_enemies(enemies, player.pos, play_area, now)
                 amount = (SPAWN_BASE + int(minutes) * SPAWN_PER_MINUTE) * hard
                 if final_boss_alive:
-                    amount /= 2
+                    amount = 0   # 최종 보스전은 1대1
                 # 4.5마리처럼 소수면: 4마리 + 절반 확률로 1마리 더
                 count = int(amount) + (random.random() < amount % 1)
                 count = min(count, MAX_ENEMIES - len(enemies))
                 if count > 0:
                     enemies.add(spawn_wave(player.pos, minutes, count, play_area, hard))
-                if random.random() < RUSH_CHANCE:
+                if random.random() < RUSH_CHANCE and not final_boss_alive:
                     enemies.add(spawn_rush(player.pos, minutes, play_area, hard))
 
             # 보스 등장 (3분, 7분 중간보스 / 10분 최종 보스)
@@ -453,11 +461,23 @@ def main():
                 kind = BOSS_SCHEDULE[next_boss][1]
                 pos = random_point_around(player.pos, 250, play_area)
                 boss = make_enemy(pos.x, pos.y, kind, player.level, hard)  # 보스 체력은 플레이어 레벨에 비례
+                if kind == "lunch_line":
+                    enemies.add(reversed(boss.make_followers()))   # 줄 선 학생들 (뒤쪽부터 넣어야 머리가 맨 위에 그려짐)
+                if kind == FINAL_BOSS:
+                    # 최종 보스전: 필드의 몹이 모두 사라지고 1대1. 보스는 하늘에서 떨어짐
+                    for enemy in list(enemies):
+                        vfx.death(enemy.pos, enemy.kind)
+                        enemy.kill()
+                    enemy_bullets.empty()
+                    boss.pos = player.pos + pygame.Vector2(0, -120)
+                    boss.start_entrance(now)
+                    sound.play_bgm("boss")
                 enemies.add(boss)
                 bosses.append(boss)
                 next_boss += 1
-                message, message_color, message_end = f"{boss.name} 등장!", ui.RED, now + 3000
                 sound.play("boss")
+                # 보스 소개 화면 (게임 멈춤, 0.8초 뒤부터 아무 키나 누르면 시작)
+                state, intro_boss, intro_start = "bossintro", boss, pygame.time.get_ticks()
 
             # 버프 아이템 생성 (30초마다)
             if now - last_item_spawn >= ITEM_SPAWN_INTERVAL:
@@ -472,6 +492,18 @@ def main():
                     if now < enemy.slow_until and random.random() < 0.15:
                         vfx.zap(enemy.pos)
             enemy_bullets.update(now)
+            for boss in bosses:
+                if boss.landed:          # 착지 소리
+                    boss.landed = False
+                    sound.play("explosion")
+                if boss.raged and boss.alive():   # 분노한 보스는 계속 불꽃이 피어오름
+                    for _ in range(2):
+                        vfx.rage_aura(boss.rect.center, boss.rect.width)
+                if boss.just_raged:
+                    boss.just_raged = False
+                    vfx.rage(boss.pos)
+                    sound.play("boss")
+                    message, message_color, message_end = f"{boss.name} 분노! 공격이 빨라진다", ui.RED, now + 3000
 
             # 무기 공격 -> 죽은 적 처리
             for weapon in list(weapons.values()):
@@ -524,11 +556,19 @@ def main():
                     sound.play("item")
 
             # 적, 물음표 ↔ 플레이어: 닿으면 플레이어가 데미지를 받음
-            enemy_hit = pygame.sprite.spritecollideany(player, enemies)
+            enemy_hit = next((e for e in pygame.sprite.spritecollide(player, enemies, False) if e.height < 20), None)
             if enemy_hit and player.take_damage(enemy_hit.damage, now):
                 sound.play("hurt")
                 vfx.hurt(player.pos)
-            for bullet in pygame.sprite.spritecollide(player, enemy_bullets, True):
+            for bullet in list(enemy_bullets):
+                if isinstance(bullet, Hazard):   # 바닥 폭발은 원 안에 있을 때만
+                    if not bullet.hits(player.pos):
+                        continue
+                    bullet.active = False        # 한 번만 맞음
+                elif not player.rect.colliderect(bullet.rect):
+                    continue
+                else:
+                    bullet.kill()
                 if player.take_damage(bullet.damage, now):
                     sound.play("hurt")
 
@@ -545,11 +585,19 @@ def main():
                 sound.play("levelup")
 
         # 3. 그리기 - 게임 화면 (작은 screen에 그림)
-        offset = get_camera_offset(player.pos, map_surface.get_size())
+        offset = get_camera_offset(player.pos, map_surface.get_size()) + vfx.shake_offset()
         screen.fill(BG_COLOR)
         screen.blit(map_surface, (0, 0), pygame.Rect(offset, (WIDTH, HEIGHT)))  # 맵에서 보이는 부분만
         for item in items:
             item.draw(screen, offset, now)
+        for enemy in enemies:   # 보스 돌진 경고선 (적보다 먼저 = 바닥에 깔림)
+            if enemy.telegraph:
+                vfx.draw_warning(screen, offset, *enemy.telegraph, now)
+            if enemy.height > 0:   # 공중에 뜬 보스의 그림자 (높을수록 작게)
+                w = enemy.rect.width * max(0.3, 1 - enemy.height / 500)
+                shadow = pygame.Rect(0, 0, w, w * 0.35)
+                shadow.center = enemy.pos - offset + (0, enemy.rect.height * 0.4)
+                pygame.draw.ellipse(screen, (20, 20, 30), shadow)
         # 건물 뒤에 있는 캐릭터는 먼저 그리고, 건물 그림(지붕·벽)을 덮은 뒤, 건물 앞 캐릭터를 그림
         behind_sprites = []
         for group in (gems, enemies, enemy_bullets):
@@ -581,6 +629,8 @@ def main():
         for weapon in weapons.values():
             weapon.draw(screen, offset, now)
         vfx.draw(screen, offset)
+        if any(b.kind == FINAL_BOSS and b.alive() for b in bosses):
+            vfx.draw_vignette(screen, now)   # 최종 보스전: 화면 가장자리가 붉게 뜀
 
         ui.draw_player_hp(screen, player, offset)
 
@@ -605,6 +655,8 @@ def main():
                 ui.draw_menu(window, menu_items, menu_index)
             elif state == "info":
                 ui.draw_info(window, weapons, player)
+            elif state == "bossintro":
+                ui.draw_boss_intro(window, intro_boss, pygame.time.get_ticks() - intro_start)
             elif state == "pause":
                 ui.draw_text(window, "big", "일시정지", ui.UI_W // 2, 40, "midtop", ui.YELLOW)
                 ui.draw_menu(window, PAUSE_MENU, menu_index)

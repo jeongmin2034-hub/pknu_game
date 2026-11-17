@@ -38,7 +38,7 @@ def get_pool(player, weapons):
             if choices:
                 index = random.choice(choices)
                 hint = "" if weapon.evolved else f"Lv{EVOLVE_LEVEL}에 진화: {weapon.evo_name}"
-                add(f"{weapon.title()} Lv{weapon.level + 1}", weapon.options[index][0], take_option(weapon, index),
+                add(f"{weapon.title()} Lv{weapon.level + 1}", weapon.option_text(index), take_option(weapon, index),
                     icon=f"icon_{key}", hint=hint)
         elif len(weapons) < MAX_WEAPONS:
             add(f"새 무기: {weapon_class.name}", weapon_class.desc, give_weapon(key), owned=False, icon=f"icon_{key}",

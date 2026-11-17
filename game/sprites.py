@@ -302,11 +302,18 @@ def with_outline(surface, color):
     return result
 
 
-def white_flash(surface):
+def white_flash(surface, amount=110):
     """맞았을 때 잠깐 보여줄 밝은 그림 (모양은 그대로, 색만 환하게)"""
     bright = surface.copy()
-    bright.fill((110, 110, 110), special_flags=pygame.BLEND_RGB_ADD)
+    bright.fill((amount, amount, amount), special_flags=pygame.BLEND_RGB_ADD)
     return bright
+
+
+def tinted(surface, color):
+    """그림에 색을 곱해서 물들임 (분노한 보스를 빨갛게)"""
+    image = surface.copy()
+    image.fill(color + (255,), special_flags=pygame.BLEND_RGBA_MULT)
+    return image
 
 
 def boss_image():
