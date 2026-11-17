@@ -14,5 +14,6 @@ _백업_*/
 
 # 실행파일 만들 때 생기는 것들
 build/
-dist/
+dist/*
+!dist/PKNU_Survival.exe
 *.spec
