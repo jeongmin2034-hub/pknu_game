@@ -600,20 +600,24 @@ def main():
                 pygame.draw.ellipse(screen, (20, 20, 30), shadow)
         # 건물 뒤에 있는 캐릭터는 먼저 그리고, 건물 그림(지붕·벽)을 덮은 뒤, 건물 앞 캐릭터를 그림
         behind_sprites = []
+        front_sprites = []
         for group in (gems, enemies, enemy_bullets):
             for sprite in group:
                 if campus.is_behind(sprite.rect.centerx, sprite.rect.bottom):
                     behind_sprites.append(sprite)
                 else:
-                    draw_sprite(screen, sprite, offset)
+                    front_sprites.append(sprite)
         player_behind = campus.is_behind(player.rect.centerx, player.rect.bottom)
+        for sprite in behind_sprites:
+            draw_sprite(screen, sprite, offset)
         if campus.building_layer:
-            for sprite in behind_sprites:
-                draw_sprite(screen, sprite, offset)
             screen.blit(campus.building_layer, (0, 0), pygame.Rect(offset, (WIDTH, HEIGHT)))
-        else:
-            for sprite in behind_sprites:
-                draw_sprite(screen, sprite, offset)
+            for sprite in behind_sprites:   # 건물 뒤 적·보석도 반투명으로 비침
+                ghost = sprite.image.copy()
+                ghost.set_alpha(110)
+                screen.blit(ghost, pygame.Vector2(sprite.rect.topleft) - offset)
+        for sprite in front_sprites:        # 건물 앞은 건물 그림 위에
+            draw_sprite(screen, sprite, offset)
 
         # 무적(학생증, 레벨업 직후)이면 플레이어 주변에 파란 원
         if player.has_buff("student_id", now) or now < player.shield_until:

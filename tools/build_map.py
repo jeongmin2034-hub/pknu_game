@@ -168,8 +168,95 @@ for _a in cd.AREAS:
         _a["poly"] = neat_ring(_a["poly"], 3)
 
 
-for _r in cd.ROADS:
-    _r["pts"] = neat_line(_r["pts"], 4 if _r["kind"] in ("path", "steps") else 3)
+def nearest_on_segment(p, a, b):
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    L2 = dx * dx + dy * dy
+    t = 0 if L2 == 0 else max(0, min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2))
+    return (a[0] + dx * t, a[1] + dy * t)
+
+
+def near_road(x, y, network, pad):
+    """실제 좌표 (x, y)가 캠퍼스 길 위(또는 pad m 안)인지"""
+    for kind, w, pts in network:
+        if kind in ("major", "street"):
+            continue
+        for a, b in zip(pts, pts[1:]):
+            if min(a[0], b[0]) - 12 < x < max(a[0], b[0]) + 12 and min(a[1], b[1]) - 12 < y < max(a[1], b[1]) + 12:
+                q = nearest_on_segment((x, y), a, b)
+                if math.hypot(q[0] - x, q[1] - y) * STRETCH < max(2.5, w) * 1.15 / 2 + pad:
+                    return True
+    return False
+
+
+def road_network():
+    """OSM 길을 교차점(노드)을 공유한 채로 반듯하게 폄 -> [(종류, 폭 m, 실제 좌표 점들)]
+    교차점 위치는 한 번만 정하고 모든 길이 같이 쓰므로 길이 끊기지 않음"""
+    data = json.load(open(os.path.join(SRC, "osm_roads.json"), encoding="utf-8"))
+    pos = {int(k): list(v) for k, v in data["nodes"].items()}
+    ways = data["ways"]
+    use = {}
+    for w in ways:
+        for i, n in enumerate(w["nodes"]):
+            use[n] = use.get(n, 0) + (2 if i in (0, len(w["nodes"]) - 1) else 1)
+    # 1) 교차점·끝점은 남기고, 그 사이 점들만 덜어내서 곧게
+    for w in ways:
+        ids = w["nodes"]
+        keep = [ids[0]]
+        start = 0
+        for i in range(1, len(ids)):
+            if use[ids[i]] >= 2 or i == len(ids) - 1:
+                seg = ids[start:i + 1]
+                tol = 4 if w["kind"] in ("path", "steps") else 3
+                kept_pts = simplify([tuple(pos[n]) for n in seg], tol)
+                for n in seg[1:]:          # 남은 점의 번호만 고름
+                    if tuple(pos[n]) in kept_pts:
+                        keep.append(n)
+                start = i
+        w["keep"] = keep
+    # 2) 거의 가로/세로인 구간은 딱 맞춤 (같은 점을 고치므로 이어진 길도 같이 움직임)
+    for _ in range(3):
+        for w in ways:
+            for a, b in zip(w["keep"], w["keep"][1:]):
+                pa, pb = pos[a], pos[b]
+                dx, dy = abs(pb[0] - pa[0]), abs(pb[1] - pa[1])
+                if dy <= dx * 0.2:
+                    pa[1] = pb[1] = (pa[1] + pb[1]) / 2
+                elif dx <= dy * 0.2:
+                    pa[0] = pb[0] = (pa[0] + pb[0]) / 2
+    # 3) 다른 길 바로 앞에서 끊긴 끝점은 가장 가까운 길까지 이어 줌
+    for w in ways:
+        for end in (0, -1):
+            n = w["keep"][end]
+            if use[n] > 2 or not in_poly(pos[n][0], pos[n][1], cd.BOUNDARY):
+                continue
+            best = None
+            for o in ways:
+                if o is w:
+                    continue
+                for a, b in zip(o["keep"], o["keep"][1:]):
+                    q = nearest_on_segment(pos[n], pos[a], pos[b])
+                    d = math.hypot(q[0] - pos[n][0], q[1] - pos[n][1])
+                    if 0.3 < d < 10 and (best is None or d < best[0]):
+                        best = (d, q)
+            if best:
+                w.setdefault("extra", {})[end] = best[1]
+    roads = []
+    for w in ways:
+        pts = [tuple(pos[n]) for n in w["keep"]]
+        extra = w.get("extra", {})
+        if 0 in extra:
+            pts.insert(0, tuple(extra[0]))
+        if -1 in extra:
+            pts.append(tuple(extra[-1]))
+        length = sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(pts, pts[1:]))
+        if length < 4:
+            continue
+        kind = w["kind"]
+        mid = pts[len(pts) // 2]
+        if kind == "street" and in_poly(mid[0], mid[1], cd.BOUNDARY):
+            kind = "campus"
+        roads.append((kind, w["w"], pts))
+    return roads
 
 
 def tiled(names):
@@ -289,9 +376,10 @@ def draw_ground():
     boundary = px(cd.BOUNDARY)
     paint(g, lambda s, c: pygame.draw.polygon(s, c, boundary), AREA_TILE["grass"])
 
+    network = NETWORK
     for kind in ("major", "street"):
-        roads = [r for r in cd.ROADS if r["kind"] == kind]
-        paint(g, lambda s, c: [draw_line_wide(s, c, px(r["pts"]), r["w"] * B * 1.2) for r in roads],
+        roads = [r for r in network if r[0] == kind]
+        paint(g, lambda s, c: [draw_line_wide(s, c, px(pts), w * B * 1.2) for _, w, pts in roads],
               [ROAD_TILE[kind]])
     for area in cd.AREAS:
         if len(area["poly"]) < 3:
@@ -307,12 +395,13 @@ def draw_ground():
         if area["kind"] == "court":
             pygame.draw.polygon(g, (238, 244, 251), poly, 1)
     for kind in ("campus", "path", "steps"):
-        roads = [r for r in cd.ROADS if r["kind"] == kind]
-        paint(g, lambda s, c: [draw_line_wide(s, c, px(r["pts"]), max(2.5, r["w"]) * B * 1.15) for r in roads],
+        roads = [r for r in network if r[0] == kind]
+        paint(g, lambda s, c: [draw_line_wide(s, c, px(pts), max(2.5, w) * B * 1.15) for _, w, pts in roads],
               [ROAD_TILE[kind]])
-    for r in cd.ROADS:
-        if r["kind"] == "major" and r["w"] >= 10:
-            dashes(g, px(r["pts"]), (255, 216, 74))
+    print("주차장 진입로", driveways(g, network), "개 추가")
+    for kind, w, pts in network:
+        if kind == "major" and w >= 10:
+            dashes(g, px(pts), (255, 216, 74))
 
     pygame.draw.polygon(g, (47, 111, 63), boundary, 3)     # 캠퍼스 생울타리
     pygame.draw.polygon(g, (79, 158, 69), boundary, 1)
@@ -356,6 +445,35 @@ def draw_pitch_lines(g, poly):
     else:
         pygame.draw.line(g, white, (r.centerx, r.top), (r.centerx, r.bottom))
     pygame.draw.circle(g, white, r.center, min(r.w, r.h) * 0.12, 1)
+
+
+def driveways(g, network):
+    """길과 떨어진 주차장은 가장 가까운 캠퍼스 길까지 ㄱ자 진입로를 그어 줌"""
+    lines = []
+    for a in cd.AREAS:
+        if a["kind"] != "parking" or len(a["poly"]) < 3 or not in_poly(*a["poly"][0], cd.BOUNDARY):
+            continue
+        xs = [p[0] for p in a["poly"]]
+        ys = [p[1] for p in a["poly"]]
+        sides = [((min(xs) + max(xs)) / 2, min(ys)), ((min(xs) + max(xs)) / 2, max(ys)),
+                 (min(xs), (min(ys) + max(ys)) / 2), (max(xs), (min(ys) + max(ys)) / 2)]
+        if any(near_road(x, y, network, 0.5) for x, y in sides):
+            continue
+        best = None
+        for sx, sy in sides:
+            for kind, w, pts in network:
+                if kind not in ("campus", "street"):
+                    continue
+                for p0, p1 in zip(pts, pts[1:]):
+                    q = nearest_on_segment((sx, sy), p0, p1)
+                    d = math.hypot(q[0] - sx, q[1] - sy)
+                    if best is None or d < best[0]:
+                        best = (d, (sx, sy), q)
+        if best and best[0] < 40:
+            _, (sx, sy), (qx, qy) = best
+            lines.append([(sx, sy), (sx, qy), (qx, qy)] if abs(qx - sx) < abs(qy - sy) else [(sx, sy), (qx, sy), (qx, qy)])
+    paint(g, lambda s, c: [draw_line_wide(s, c, px(l), 5 * B) for l in lines], ["tile_campus"])
+    return len(lines)
 
 
 # ------------------------------------------------------------------
@@ -425,15 +543,6 @@ def make_building(b, pts):
     surf.blit(top, (0, 0))
     pygame.draw.polygon(surf, tint(roof, 0.6), rp, 1)
     count = inner.count()
-    if campus and count > 900:
-        for _ in range(min(5, count // 1400 + 1)):
-            for _try in range(20):
-                u = IMG[rng.choice(["roof_unit_0", "roof_unit_1", "roof_unit_2"])]
-                ux, uy = rng.randrange(3, max(4, w - 11)), rng.randrange(3, max(4, hh - 9))
-                if all(0 <= ux + dx < w and 0 <= uy + dy < hh and inner.get_at((ux + dx, uy + dy))
-                       for dx in (-2, 10) for dy in (-2, 8)):
-                    surf.blit(u, (ux, uy))
-                    break
     cx, cy = inner.centroid() if count else (w / 2, hh / 2)
     return surf, (x0, y0), pts, h, (x0 + cx, y0 + cy)
 
@@ -474,8 +583,8 @@ def wall_detail(surf, l, r, h, col, style):
 TREE_NAMES = {"cherry": ["tree_cherry_0", "tree_cherry_1", "tree_cherry_2"], "ginkgo": ["tree_ginkgo_0", "tree_ginkgo_1"],
               "green": ["tree_green_0", "tree_green_1", "tree_green_2"], "pine": ["tree_pine_0", "tree_pine_1"],
               "bush": ["bush_0", "bush_1"], "quince": ["tree_quince"]}
-LANDMARK_SPRITE = {"백경탑": "monument", "웅비탑": "monument", "부경고사우루스": "statue_dino",
-                   "실러캔스": "statue_fish", "한어울터": "fountain_0"}
+LANDMARK_SPRITE = {"백경탑": "monument", "웅비탑": "monument", "한어울터": "fountain_0"}
+NO_LABEL = ("골드정원", "생활밀착형 숲", "허공에의 드로잉", "부경고사우루스", "실러캔스")
 
 
 def collect_statics():
@@ -486,6 +595,8 @@ def collect_statics():
     trees = sorted(cd.TREES, key=lambda t: order.get(t[2], 5))
     kept = []
     for x, y, kind in trees:
+        if near_road(x, y, NETWORK, 0.8):
+            continue
         gap = TREE_GAP.get(kind, 20)
         if all(math.hypot(x - a, y - b) * STRETCH >= max(gap, g2) * 0.9 for a, b, g2 in kept):
             kept.append((x, y, gap))
@@ -494,7 +605,7 @@ def collect_statics():
             out.append((fy, IMG[name], (fx, fy)))
     props = []
     for x, y, kind in cd.PROPS:
-        if kind in ("bench", "lamp", "vending", "busstop", "flag", "sign"):
+        if kind in ("bench", "lamp", "vending", "busstop", "flag", "sign") and not near_road(x, y, NETWORK, 0.5):
             if all(math.hypot(x - a, y - b) * STRETCH >= PROP_GAP for a, b in props):
                 props.append((x, y))
                 fx, fy = T(x, y)
@@ -516,6 +627,8 @@ def collect_statics():
 # 5. 전부 합치기
 # ------------------------------------------------------------------
 def main():
+    global NETWORK
+    NETWORK = road_network()
     floors, alias = load_registry()
     changed = []
     for b in cd.BUILDINGS:
@@ -583,12 +696,9 @@ def main():
         else:
             img, (fx, fy) = data
             over.blit(img, (fx - img.get_width() // 2, fy - img.get_height() + 1))
-    for _, kind, data in drawn:      # 건물 바닥 자리는 "뒤"가 아님
-        if kind == "bld":
-            pygame.draw.polygon(sil, (0, 0, 0, 0), data[2])
 
     for lm in cd.LANDMARKS:          # 명소 이름표
-        if lm["kind"] == "building" or lm["name"] in ("골드정원", "생활밀착형 숲", "허공에의 드로잉"):
+        if lm["kind"] == "building" or lm["name"] in NO_LABEL:
             continue
         fx, fy = T(lm["x"], lm["y"] - 6)
         labels.append([lm["name"], [round(fx * ZOOM), round(fy * ZOOM)]])
@@ -602,7 +712,7 @@ def save(ground, over, sil, block, labels):
     pygame.image.save(pygame.transform.scale(ground, big), os.path.join(OUT, "map.png"))
     pygame.image.save(pygame.transform.scale(over, big), os.path.join(OUT, "map_bld.png"))
     cells = (big[0] // CELL, big[1] // CELL)
-    for surf, name, cut in ((sil, "map_sil.png", 140), (block, "map_block.png", 110)):
+    for surf, name, cut in ((sil, "map_sil.png", 200), (block, "map_block.png", 50)):
         small = pygame.transform.smoothscale(surf, cells)
         out = pygame.Surface(cells, pygame.SRCALPHA)
         for y in range(cells[1]):
